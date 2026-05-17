@@ -1,0 +1,35 @@
+# Coq
+*.vo
+*.vok
+*.vos
+*.glob
+.*.aux
+.lia.cache
+.Makefile.d
+.CoqMakefile.d
+*.cache
+
+# OCaml/Dune
+_build/
+*.cmi
+*.cmo
+*.cmx
+*.o
+*.a
+*.cmxa
+*.cma
+
+# LaTeX
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.toc
+
+# OS
+.DS_Store
+Thumbs.db

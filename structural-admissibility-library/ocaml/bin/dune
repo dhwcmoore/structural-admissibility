@@ -1,0 +1,9 @@
+(executable
+ (name monitor_cli)
+ (modules monitor_cli)
+ (libraries structural_admissibility))
+
+(executable
+ (name replay_trace)
+ (modules replay_trace)
+ (libraries structural_admissibility))

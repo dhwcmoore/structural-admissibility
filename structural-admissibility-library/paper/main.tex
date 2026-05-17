@@ -1,0 +1,1150 @@
+\documentclass[a4paper,11pt]{article}
+
+% -----------------------------------------------------------------------
+% Packages
+% -----------------------------------------------------------------------
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{microtype}
+\emergencystretch=2em
+\usepackage{placeins}
+\usepackage{xcolor}
+\usepackage{listings}
+
+% -----------------------------------------------------------------------
+% Theorem environments
+% -----------------------------------------------------------------------
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{remark}[theorem]{Remark}
+
+% -----------------------------------------------------------------------
+% Title
+% -----------------------------------------------------------------------
+\title{%
+  Structural Admissibility for Verification Systems:\\
+  Observation, Warrant Debt, and Factorisation Repair%
+}
+
+\author{%
+  % TODO: author names
+}
+
+\date{}
+
+% -----------------------------------------------------------------------
+\begin{document}
+\maketitle
+
+% -----------------------------------------------------------------------
+\begin{abstract}
+Safety claims are usually made through an observation interface: a monitor, a
+log, a trace, a sensor, or an abstraction. Such interfaces do not preserve every
+concrete distinction. This matters when a safety predicate distinguishes states
+that the interface identifies. We call a predicate admissible relative to an
+observation map when it factors through that map. If factorisation fails, the
+missing distinction cannot be recovered by post-processing the observation. We
+formalise this criterion in Rocq. The development contains 41 Rocq source
+files, all compiling to corresponding \texttt{.vo} files, with no admitted
+lemmas and eight named axioms. The case studies are deliberately
+small. They cover consensus under partition, GPU-style relaxed memory
+observations, and physical sensor boundary models. They do not claim to be full
+models of those domains. Their purpose is narrower: to show how the same
+factorisation failure can appear in discrete, concurrent, and physical settings.
+The remedy is also ordinary: weaken the claim until the observation supports it,
+or strengthen the observation until the distinction is visible. The contribution
+is to state this discipline explicitly and to mechanise the reason that some
+apparent noise is a failed observation boundary.  The
+development also makes the repair obligation operational: extracted
+monitor and certificate structures classify admissibility failures as engineering
+actions, while warrant debt is classified by kind, repair pressure, and expected
+repair burden.
+\end{abstract}
+
+% -----------------------------------------------------------------------
+\section{Introduction}
+\label{sec:introduction}
+% -----------------------------------------------------------------------
+
+Verification rarely sees the system directly. It sees an abstraction, a trace, a
+log, a monitor state, a sensor reading, or a reconstructed state estimate. Each
+is an observation map. Each preserves some distinctions and collapses others.
+This is not an error. It is the normal condition under which verification and
+runtime assurance operate.
+
+The risk begins when a safety predicate depends on a distinction that the
+observation does not preserve. Then the safety claim is stronger than the
+interface through which it is made. In routine engineering this problem is often
+handled pragmatically. One restricts the operating envelope, adds a sensor,
+changes a monitor, rejects an over-strong claim, or records an extra field in a
+log. These are familiar moves. The paper gives them a simple structural test.
+
+The same test can be used prospectively.  Given a proposed claim and an
+observation interface, the factorisation criterion asks whether the claim is
+supported by what the interface actually carries.  If not, the development
+classifies the repair obligation: restrict the claim, reject it, or refine the
+observation boundary.
+
+A safety predicate is admissible relative to an observation map exactly when it
+factors through that map. Equivalently, states that have the same observation
+must agree on the predicate. If two concrete states look the same to the
+observation but differ with respect to the safety predicate, the claim is not
+supported by that observation. No downstream classifier, dashboard, optimiser,
+or monitor can repair the loss. The information has already been collapsed.
+
+This point is modest, but important. Many admissibility failures will look like
+noise at the observational level. A sensor appears imprecise. A trace appears
+partial. A local execution appears harmless. A monitor appears inconclusive. The
+paper argues that this is sometimes the wrong diagnosis. The problem may not be
+noise. It may be a failed factorisation.
+
+The paper does not propose a new general-purpose verification algorithm. It
+does not claim that all safety reasoning reduces to factorisation. It isolates a
+necessary condition on safety claims made through observation interfaces. When
+that condition fails, the claim must be restricted, rejected, or the observation
+must be refined.
+
+\paragraph{Contributions.}
+
+\begin{itemize}
+\item We define structural admissibility as factorisation of a safety predicate
+through an observation map.
+\item We prove the non-recoverability principle: once an observation collapses a
+safety-relevant distinction, post-processing cannot separate it.
+\item We mechanise the framework in Rocq, with 41 compiled source files, no
+admitted lemmas, and eight named axioms.
+\item We give small case studies in consensus, GPU-style memory observations,
+and physical sensor models.
+\item We distinguish two repair forms: predicate rejection or restriction, and
+observational refinement. These are formally parallel but not operationally
+symmetric.
+\item We expose this repair discipline through extracted engineering-action
+records, so that monitor and certificate outputs can be read as explicit repair
+obligations rather than as unstructured warnings.
+\item We repackage the physical threshold assumptions as instances of a
+general non-degenerate-threshold obligation, making clear that the issue is
+mathematical parameterisation, not an ad hoc feature of the physics example.
+\item We refine warrant debt from a mnemonic into a qualitative typology,
+classifying debt by kind, repair pressure, and repair cost band.
+\end{itemize}
+
+Section~\ref{sec:setting} states the factorisation criterion.
+Section~\ref{sec:warrant} defines warrant debt and non-recoverability.
+Section~\ref{sec:recovery} explains restriction and refinement.
+Section~\ref{sec:rocq} describes the Rocq development.
+Section~\ref{sec:casestudies} reports the case studies.
+Sections~\ref{sec:related} through~\ref{sec:conclusion} place the result,
+state its limits, and draw the practical lesson.
+
+Theorems are proved about the stated models. Industrial relevance follows only
+when an engineering setting instantiates the same observation, predicate,
+collapse, and repair structure.
+
+% -----------------------------------------------------------------------
+\section{Mathematical Setting}
+\label{sec:setting}
+% -----------------------------------------------------------------------
+
+Let \(X\) be a concrete state space, \(O\) an observation space, and
+\(M : X \to O\) an observation map. Let \(\Phi : X \to \mathsf{Prop}\) be a
+safety predicate.
+
+\subsection{Observation-induced equivalence}
+
+The observation map \(M\) induces an equivalence on concrete states:
+\[
+  x \sim_M y \quad\text{iff}\quad M(x) = M(y).
+\]
+States that agree under \(M\) are indistinguishable from the perspective of
+the observation interface.
+
+\subsection{Admissibility}
+
+\begin{definition}[Admissibility]
+\label{def:admissible}
+The predicate \(\Phi\) is \emph{admissible} relative to \(M\) if and only if
+\[
+  M(x) = M(y) \Longrightarrow \bigl(\Phi(x) \leftrightarrow \Phi(y)\bigr).
+\]
+\end{definition}
+
+Equivalently, \(\Phi\) is constant on the fibres of \(M\). This is a support
+condition: it says that the observation contains enough information for the
+predicate being asserted through it.
+
+\subsection{Factorisation}
+
+\begin{definition}[Factorisation]
+\label{def:factorisation}
+The predicate \(\Phi\) \emph{factors through} \(M\) if there exists
+\(\widehat{\Phi} : O \to \mathsf{Prop}\) such that
+\[
+  \forall x : X,\quad \Phi(x) \leftrightarrow \widehat{\Phi}(M(x)).
+\]
+\end{definition}
+
+\subsection{The main equivalence}
+
+\begin{theorem}[Admissibility iff factorisation]
+\label{thm:backbone}
+The predicate \(\Phi\) is admissible relative to \(M\) if and only if it
+factors through \(M\).
+\end{theorem}
+
+\begin{proof}
+If \(\Phi\) factors through \(M\), then \(M(x)=M(y)\) immediately gives
+\(\Phi(x)\leftrightarrow\Phi(y)\). Conversely, suppose \(\Phi\) is constant on
+the fibres of \(M\). Define
+\[
+  \widehat{\Phi}(o) \;:\!\!\iff\; \exists x:X.\ M(x)=o \wedge \Phi(x).
+\]
+Then \(\Phi(x)\) implies \(\widehat{\Phi}(M(x))\) by taking \(x\) as witness.
+Conversely, if \(\widehat{\Phi}(M(x))\) then for some \(y\), \(M(y)=M(x)\) and
+\(\Phi(y)\). Fibre-constancy gives \(\Phi(x)\). In the Rocq development this is
+\texttt{admissible\_iff\_constant\_on\_kernel}.
+\end{proof}
+
+This equivalence is the formal spine of the paper. The rest of the paper is an
+application of it. Each case study asks whether a predicate is constant on the
+fibres of the stated observation.
+
+% -----------------------------------------------------------------------
+\section{Warrant Debt and Non-Recoverability}
+\label{sec:warrant}
+% -----------------------------------------------------------------------
+
+\subsection{Warrant debt}
+
+\begin{definition}[Witnessed warrant debt]
+\label{def:debt}
+An observation map \(M\) has \emph{witnessed warrant debt} with respect to
+\(\Phi\) when there exist \(x, y : X\) such that
+\[
+  M(x) = M(y),\quad \Phi(x),\quad \neg\,\Phi(y).
+\]
+\end{definition}
+
+A witnessed warrant debt is a concrete certificate of non-admissibility. The
+term is meant literally. A safety claim made through \(M\) borrows distinctions
+that \(M\) does not provide.
+
+\begin{definition}[Profiled warrant debt]
+\label{def:profiled-debt}
+A \emph{profiled warrant debt} is a witnessed warrant debt together with a
+classification of the collapsed distinction and the corresponding repair
+pressure.  The classification does not measure risk numerically.  It records
+what kind of information has been lost and what sort of engineering act would
+be required to discharge the debt.
+\end{definition}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{p{1.9cm}p{2.5cm}p{4.2cm}p{2.0cm}}
+\hline
+Debt kind & Collapsed distinction & Typical repair & Repair burden \\
+\hline
+Quorum debt
+  & Global quorum structure
+  & Enrich quorum data or restrict to local belief
+  & Moderate \\[4pt]
+Trace debt
+  & Global ordering or visibility
+  & Add ordering metadata or restrict to DRF executions
+  & Low to moderate \\[4pt]
+Boundary debt
+  & Boundary or inter-sample behaviour
+  & Add sensing, margins, or boundary data
+  & High \\[4pt]
+Threshold debt
+  & Non-degenerate threshold condition
+  & State threshold obligation explicitly
+  & Low, proof-critical \\[4pt]
+Runtime debt
+  & Fatigue or rupture-state information
+  & Emit review or rupture action
+  & Operational \\
+\hline
+\end{tabular}
+\caption{Qualitative warrant-debt profiles.  The table is not a quantitative
+risk metric.  It classifies the kind of collapsed distinction and the
+corresponding repair pressure.}
+\label{tab:warrant-debt-profiles}
+\end{table}
+
+The point of the profile is not to price safety numerically.  It prevents a
+category error.  A thread-local trace debt and a boundary-sensing debt may
+instantiate the same formal pattern, but they do not impose the same repair
+cost.  The first may require an extra log field or a restricted execution
+class.  The second may require additional instrumentation or a stronger
+physical model.
+
+\subsection{Non-recoverability}
+
+\begin{theorem}[Non-recoverability]
+\label{thm:no-recovery}
+For any map \(f : O \to Y\),
+\[
+  M(x) = M(y) \Longrightarrow f(M(x)) = f(M(y)).
+\]
+Consequently, if \(M\) collapses \(x\) and \(y\), no downstream map from
+observations can separate them.
+\end{theorem}
+
+\begin{proof}
+By congruence of equality under \(f\). In the Rocq development this is the
+non-recoverability lemma for post-processing maps over observations.
+\end{proof}
+
+\begin{corollary}[No post-processing repair]
+\label{cor:no-repair}
+Suppose \(M(x)=M(y)\), \(\Phi(x)\), and \(\neg\Phi(y)\). Then for every
+\(f:O\to Y\), the observation \(f\circ M\) does not make \(\Phi\) admissible.
+\end{corollary}
+
+\begin{proof}
+Since \(M(x)=M(y)\), congruence gives \(f(M(x))=f(M(y))\). But \(\Phi\)
+separates \(x\) and \(y\). Hence \(\Phi\) is not constant on the fibres of
+\(f\circ M\).
+\end{proof}
+
+No function of the observation can recover a distinction not present in the
+observation. Classifiers, dashboards, monitors, and optimisers are such
+functions unless they receive additional information.
+
+\subsection{Why this can be mistaken for noise}
+
+At the observational level, an inadmissibility witness may look unremarkable.
+Two executions have the same local trace. Two sampled trajectories have the
+same visible readings. Two distributed states have the same local view. It is
+tempting to describe the disagreement as measurement noise, modelling
+imprecision, or a benign abstraction artefact. Sometimes that is correct. But
+when the predicate separates two states that the observation identifies, the
+problem is structural. The observation is not merely noisy with respect to the
+claim. It is insufficient for the claim.
+
+This is the practical reason for naming warrant debt. The name does not add a
+new proof principle. It marks a common mistake: treating a failed observation
+boundary as an implementation nuisance.
+
+\subsection{Consequence for verification}
+
+If a proof of \(\Phi\) requires a distinction invisible to \(M\), the proof is
+not a proof through \(M\). It is a proof through a stronger, implicit
+observation. The framework makes this precise. An inadmissible predicate cannot
+be made admissible by adding an assumption that bypasses the observation
+boundary. The assumption merely moves the missing observation into the proof.
+
+% -----------------------------------------------------------------------
+\section{Recovery: Restrict or Refine}
+\label{sec:recovery}
+% -----------------------------------------------------------------------
+
+At the level of the factorisation criterion, there are two principled repair
+forms.
+
+\subsection{Predicate rejection or restriction}
+
+One may replace \(\Phi\) by a predicate \(\Psi\) that is admissible relative to
+the existing observation \(M\). This may mean weakening the guarantee,
+restricting the state class, strengthening the operating envelope, using robust
+margins, or limiting executions to those the observation can support.
+
+Rejection does not always mean weakening the predicate in a crude sense. It
+means refusing to assert a claim whose truth is not determined by the available
+observation. Restriction is the constructive version of that refusal.
+
+\subsection{Observational refinement}
+
+Alternatively, one may replace \(M\) by a richer observation \(M' : X \to O'\)
+together with a projection \(\pi : O' \to O\) such that
+\[
+  M = \pi \circ M'.
+\]
+The refined observation \(M'\) preserves the old observation while exposing
+additional structure. If \(\Phi\) factors through \(M'\), admissibility has been
+recovered by changing the observation boundary rather than the predicate.
+
+\subsection{Formal duality is not operational symmetry}
+\label{subsec:not-symmetric}
+
+Restriction and refinement are formally parallel repair forms. They are not the
+same engineering act. Restriction keeps the observation map fixed and changes
+the claim. Refinement keeps the claim fixed and changes the observation. Both
+can restore factorisation. They pay different costs.
+
+Restriction pays in guarantee strength. The resulting claim may be narrower,
+conditional, local, robust only within a margin, or valid only under a specified
+synchronisation discipline. Refinement pays in observational burden. The system
+must expose more structure, log more information, add a sensor, preserve a
+trace, or reconstruct a richer state.
+
+This distinction is visible in the case studies. Both repairs are mechanised in
+all three domains. They are not the same engineering act in all three domains.
+The repair that is natural in one setting may be artificial in another.
+
+\subsection{Everyday safety procedures already use both repairs}
+\label{subsec:safety-practice}
+
+The distinction is not exotic. Everyday safety procedures already use both
+moves. A restricted operating envelope is predicate restriction: the claim is no
+longer that all states are safe, but that states inside a stated envelope are
+safe. An added sensor is observational refinement: the claim is kept, but the
+interface is strengthened. A lockout condition restricts admissible operation. A
+new alarm channel refines observation. A conservative threshold restricts the
+claim to a margin. A higher resolution measurement refines the observation.
+
+The paper's point is not that engineers do not know this. They do. The point is
+that verification texts and monitor designs can obscure the distinction. Once
+the distinction is obscured, an unsupported safety predicate can be smuggled in
+as a harmless assumption, a modelling convention, or noise. The factorisation
+criterion is a discipline against that mistake.
+
+\subsection{Repair choice as an engineering obligation}
+\label{subsec:repair-obligation}
+
+The factorisation failure does not decide the repair automatically.  It
+creates an obligation.  The engineer must decide whether the unsupported
+distinction should be removed from the claim or added to the observation.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{p{2.2cm}p{2.5cm}p{2.8cm}p{3.5cm}}
+\hline
+Repair & Claim preserved? & Observation changed? & Cost paid \\
+\hline
+Restriction & No & No & Reduced guarantee strength \\[4pt]
+Rejection   & No & No & Claim abandoned \\[4pt]
+Refinement  & Yes & Yes & Added observation burden \\[4pt]
+Explicit carriage & No full discharge & No & Documented limitation \\
+\hline
+\end{tabular}
+\caption{Repair choices after factorisation failure.  Restriction and refinement
+are formally parallel repairs, but they are not operationally symmetric.}
+\label{tab:repair-choice}
+\end{table}
+
+A restricted claim may be the correct engineering response when the stronger
+claim is not worth the instrumentation required to support it.  A refined
+observation is the correct response when the stronger claim is required and
+the missing distinction can be exposed by logging, sensing, reconstruction,
+or synchronisation discipline.  Explicit carriage is not a proof repair.  It
+is the act of recording that a known admissibility debt remains attached to a
+weaker safety case.
+
+\subsection{No invisible observation}
+
+\begin{quote}
+\textbf{Principle 4.1} (No invisible observation). When a predicate fails to
+factor through the current observation map, a proof must not be repaired by an
+assumption that supplies the missing distinction without changing the stated
+observation boundary.
+\end{quote}
+
+The proof obligation is discharged only by restricting the claim, rejecting the
+claim, or refining the observation. The case studies in
+Section~\ref{sec:casestudies} illustrate this discipline.
+
+% -----------------------------------------------------------------------
+\section{Rocq Development}
+\label{sec:rocq}
+% -----------------------------------------------------------------------
+
+\subsection{Library structure}
+
+The mechanisation is organised as follows:
+
+\begin{description}
+\item[\texttt{Foundation/}] Relations, orders, lattices, quotients, topology,
+mereotopology, and metric resolution.
+\item[\texttt{Admissibility/}] Observation maps, the factorisation criterion,
+kernel pairs, refinement, collapse witnesses, warrant debt, profiled warrant
+debt, and horizon debt.
+\item[\texttt{Runtime/}] Monitor states, structural fatigue, metastable closure,
+rupture certificates, recovery, and runtime soundness.
+\item[\texttt{Automation/}] Custom tactics for admissibility, refinement,
+collapse, and certificate reasoning.
+\item[\texttt{CaseStudies/Consensus/}] Network model, partition collapse,
+consensus admissibility.
+\item[\texttt{CaseStudies/GPU/}] Memory model, GPU admissibility.
+\item[\texttt{CaseStudies/PhysicalSystems/}] Boundary conditions,
+non-degenerate threshold obligations, thermal model, sensor collapse, PDE
+admissibility.
+\item[\texttt{Extraction/}] Extractable types, monitor extraction, certificate
+extraction, engineering-action extraction, and extraction correctness.
+\end{description}
+
+\subsection{Formal status}
+
+The accompanying Rocq development consists of 41 source files, all of which
+compile to \texttt{.vo} files. It contains no admitted lemmas. The remaining
+logical strength of the development is confined to eight named axioms. They are
+not hidden. They are part of the mathematical specification.
+
+\subsection{Axioms and their role}
+\label{subsec:axioms-role}
+
+The eight axioms are background principles, not incomplete proofs. Three concern
+primitive connection in mereotopology:
+
+\begin{description}
+\item[\texttt{C\_refl}] Every region is connected to itself.
+\item[\texttt{C\_sym}] Connection is symmetric.
+\item[\texttt{ntpp\_irreflexive}] No region is a non-tangential proper part of
+itself.
+\end{description}
+
+The axiom \texttt{ntpp\_irreflexive} is an RCC-style mereotopological
+assumption. It is not derivable from \texttt{C\_refl} and \texttt{C\_sym}
+alone. It is therefore stated explicitly. The derived result
+\texttt{ntpp\_antisym} is proved from it.
+
+The remaining five axioms are application-level constraints. Their exact Rocq
+names and roles are given in Table~\ref{tab:axiom-roles}. The following
+paragraphs explain how each axiom interacts with the actual proof obligations
+it discharges.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.8cm}p{4.0cm}p{3.2cm}}
+\toprule
+Rocq axiom name & Role in the model & Why it is explicit \\
+\midrule
+\texttt{C\_refl}
+  & Every region connects to itself
+  & Base mereotopology \\[3pt]
+\texttt{C\_sym}
+  & Connection is symmetric
+  & Base mereotopology \\[3pt]
+\texttt{ntpp\_irreflexive}
+  & No region is an NTPP of itself
+  & Boundary discipline \\[3pt]
+\texttt{boundary\_obs\_\allowbreak{}respects\_\allowbreak{}signature}
+  & Same boundary signature implies same observation
+  & Sensor interface coherence \\[3pt]
+\texttt{max\_temp\_positive}
+  & Thermal safety threshold is positive
+  & Non-degenerate witness \\[3pt]
+\texttt{max\_pressure\_positive}
+  & Pressure safety threshold is positive
+  & Non-degenerate witness \\[3pt]
+\texttt{max\_flux\_positive}
+  & Flux safety threshold is positive
+  & Non-degenerate witness \\[3pt]
+\texttt{meta\_review\_\allowbreak{}trigger\_lt\_\allowbreak{}fatigue\_threshold}
+  & Review trigger fires before hard rupture threshold
+  & Runtime monitor ordering \\
+\bottomrule
+\end{tabular}
+\caption{All eight named axioms with their exact Rocq names and roles.
+  Full justification for each appears in \texttt{ASSUMPTIONS.md}.}
+\label{tab:axiom-roles}
+\end{table}
+
+\paragraph{\texttt{boundary\_obs\_respects\_signature}.}%
+This axiom is the contractual interface between the abstract sensor model and
+the factorisation failure proof. It states that regions sharing the same
+boundary signature produce identical boundary observations. The key use is in
+\texttt{boundary\_collapse\_induces\_\allowbreak{}admissibility\_failure}: the proof must
+rewrite the boundary observation of one region in terms of the other after
+establishing that their signatures agree. Without the axiom, that rewrite is
+not licensed. The axiom is not a consequence of the mereotopological base. It
+is an explicit requirement imposed on any concrete instantiation of the boundary
+sensor interface.
+
+This is the physical analogue of a hidden structural bridge in the discrete
+case studies.  In the GPU case, the restriction proof relies on the DRF-SC
+bridge for the toy execution model.  In the physical case, the corresponding
+burden is boundary coherence and non-degenerate thresholds.  The burdens
+differ in content, but they play the same methodological role: they state the
+conditions under which the observation map is precise enough for the
+factorisation question to be well posed.
+
+\paragraph{\texttt{max\_temp\_positive}, \texttt{max\_pressure\_positive},
+\texttt{max\_flux\_positive}.}
+These three axioms are instances of one structural obligation: a threshold
+used to build a predecessor witness must be non-degenerate.  The proofs
+compare a threshold value with its predecessor.  In Rocq's natural-number
+arithmetic this comparison is meaningful only when the threshold is strictly
+positive.  Otherwise subtraction by one saturates at zero, and the intended
+witness degenerates.
+
+The development therefore packages the issue as a non-degenerate-threshold
+obligation.  Temperature, pressure, and flux are three instances of the same
+mathematical requirement.  The point is not that the physical model needs
+three unrelated physical assumptions.  The point is that any threshold-based
+safety witness of this form must state the arithmetic condition under which
+the witness is non-degenerate.
+
+\paragraph{\texttt{meta\_review\_trigger\_lt\_fatigue\_threshold}.}
+This axiom orders the two key parameters of the runtime monitor: the fatigue
+level at which the monitor enters \textsc{Meta\_Review}, and the level at which
+it enters \textsc{Hard\_Rupture}. The strict inequality ensures that there
+exists a fatigue band in which the monitor is under structural review but has
+not yet triggered hard rupture. Without this ordering, the
+\textsc{Meta\_Review} state could be unreachable: if the hard-rupture threshold
+were not above the review trigger, the monitor could cross directly from
+\textsc{Closed} to \textsc{Hard\_Rupture}, bypassing the intermediate phase.
+The axiom governs the topology of the monitor state machine: it is the
+condition that makes metastable closure distinct from hard rupture.
+
+The continuous case does more mathematical work than the discrete examples:
+boundary assumptions and ordering constraints have no direct analogue in a
+thread-local trace or a partitioned local view. The common claim is that each
+domain contains an observation map, a predicate, and a possible failure of
+factorisation.
+
+\subsection{Mechanisation scope}
+
+The development mechanises the factorisation criterion and its equivalence with
+admissibility, the non-recoverability principle, the runtime monitor theory
+including rupture certificates, and the three case-study examples. It does not
+claim to be a full mechanisation of Paxos, a production GPU memory model, or a
+continuous control-system specification.
+
+Table~\ref{tab:code-claims} maps each prose claim to its Rocq artefact.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{3.5cm}p{4.5cm}p{2.6cm}}
+\toprule
+Claim & Rocq artefact & Status \\
+\midrule
+Admissibility iff fibre-constancy
+  & \texttt{admissible\_iff\_\allowbreak{}constant\_on\_kernel}
+  & proved \\[3pt]
+Non-recoverability
+  & non-recoverability lemma in \texttt{Collapse.v}
+  & proved \\[3pt]
+Consensus refinement
+  & \texttt{ConsensusAdmissibility.v}
+  & proved \\[3pt]
+Consensus restriction
+  & \texttt{ConsensusRestriction.v}
+  & proved \\[3pt]
+GPU refinement
+  & \texttt{GPUAdmissibility.v}
+  & proved \\[3pt]
+GPU DRF restriction
+  & \texttt{GPURestriction.v}
+  & proved, conditional on DRF-SC bridge \\[3pt]
+Physical restriction
+  & \texttt{PDEAdmissibility.v}
+  & proved \\[3pt]
+Physical refinement
+  & \texttt{PDEAdmissibility.v}
+  & proved \\[3pt]
+Extraction bridge
+  & \texttt{ExtractionCorrectness.v}
+  & proved \\[3pt]
+Profiled warrant debt
+  & \texttt{WarrantDebt.v}
+  & proved/\allowbreak{}classified \\[3pt]
+Non-degenerate thresholds
+  & \texttt{BoundaryConditions.v}, \texttt{ThermalModel.v}, \texttt{PDEAdmissibility.v}
+  & parameterised \\[3pt]
+Engineering-action extraction
+  & \texttt{MonitorExtraction.v}, \texttt{CertificateExtraction.v}
+  & extracted \\
+\bottomrule
+\end{tabular}
+\caption{Prose claims and their Rocq artefacts.}
+\label{tab:code-claims}
+\end{table}
+
+The profiling and action records are not additional safety theorems about the
+external world.  They are typed interfaces around the existing factorisation
+result.  Their role is to prevent an admissibility failure from being reported
+as an unstructured warning.  The reported object records the kind of debt, the
+repair pressure, and the corresponding engineering action.
+
+\subsection{Extraction bridge}
+\label{subsec:extraction}
+
+The \texttt{Extraction/} component produces two OCaml files from the Rocq
+development via the built-in \texttt{Extraction Language OCaml} command:
+\texttt{monitor\_extracted.ml} and \texttt{cert\_extracted.ml}.
+
+\texttt{monitor\_extracted.ml} contains the function \texttt{update\_monitor},
+which takes an \texttt{ExtractableSnapshot} and an \texttt{ExtractableInput}
+and returns the next snapshot. The Rocq type \texttt{ExtractableSnapshot}
+records fatigue level, tension, horizon, lag, and numeric status code (0 =
+\textsc{Closed}, 1 = \textsc{Meta\_Review}, 2 = \textsc{Hard\_Rupture}). The
+extracted file also contains the proofs of two verified properties:
+\texttt{update\_monitor\_preserves\_invariants}, which states that the monitor
+invariant is maintained across every transition, and
+\texttt{update\_monitor\_hard\_rupture\_absorbing}, which states that once the
+hard-rupture status is set it is never cleared. The proof terms carry no
+operational content in the extracted program; the computational content is the
+monitor update function itself. The extracted code is therefore not a proof
+checker. It is code produced from terms whose relevant properties have been
+proved in Rocq.
+
+\texttt{cert\_extracted.ml} contains \texttt{extracted\_cert\_valid}, a
+boolean certificate checker, and \texttt{build\_extractable\_cert}, a
+constructor for rupture certificates from explicit witnesses. Within the Rocq model, the soundness result
+\texttt{extracted\_certificate\_sound} states that every certificate accepted
+by the checker satisfies the certificate predicate: the two predicate values
+recorded in the certificate differ, and the fatigue component is positive. It
+does not certify the external sensor pipeline, the OCaml compiler, or the
+runtime environment.
+
+The correctness connection between the Rocq specification and the extracted
+code rests on three proved theorems in \texttt{ExtractionCorrectness.v}.
+\texttt{snapshot\_round\_trip} proves that converting a \texttt{MonitorSnapshot}
+to the extractable representation and back is an identity. The theorem
+\texttt{coq\_extractable\_coq\_equiv} proves that a round-trip through the
+extractable types preserves both fatigue level and status code. Together they ensure that the type bridge is faithful: no information is
+discarded or corrupted by the representation change.
+
+The extraction layer also exposes an engineering-action interface.  A monitor
+status is mapped to an action classification: closed states require no repair
+action, meta-review states require review of the observation boundary, and
+hard-rupture states require rejection or refinement.  Certificate output is
+likewise mapped to a repair obligation when it records a concrete predicate
+disagreement over an identical observation.  This is not a dashboard
+implementation.  It is the typed core that a dashboard, issue tracker, or
+safety-case tool would consume.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{p{2.5cm}p{3.2cm}p{5.0cm}}
+\hline
+Extracted condition & Engineering action & Interpretation \\
+\hline
+Closed
+  & No repair action
+  & Current observation supports the monitored state \\[4pt]
+Meta Review
+  & Review observation boundary
+  & Structural fatigue is visible before rupture \\[4pt]
+Hard Rupture
+  & Reject, restrict, or refine
+  & The current claim is no longer supportable \\[4pt]
+Certificate witness
+  & Open admissibility obligation
+  & Same observation, different predicate value \\
+\hline
+\end{tabular}
+\caption{Operational reading of extracted monitor and certificate output.}
+\label{tab:engineering-action}
+\end{table}
+
+The limitation of the extraction layer is the standard one. Rocq's extraction
+theorem guarantees that the extracted OCaml has the same computational
+behaviour as the Rocq term under the Rocq reduction rules. It does not verify
+the OCaml compiler, the runtime system, or the interface code that feeds
+sensor data into \texttt{ExtractableInput} records. That boundary is the point
+where the formal guarantee ends and engineering practice resumes.
+
+% -----------------------------------------------------------------------
+% \section{Case Studies} — title comes from case-studies.tex
+\label{sec:casestudies}
+% -----------------------------------------------------------------------
+
+\input{case-studies}
+
+\subsection{Comparing the burden across domains}
+\label{subsec:domain-burden}
+
+The case studies share a formal pattern. They do not share a mathematical
+substrate. In the consensus example, the relevant collapse is induced by local
+views under partition. In the GPU example, the relevant collapse is induced by
+thread-local observation of an execution whose global consistency status may
+differ. In the physical-systems example, the collapse is mediated by sampling,
+boundary behaviour, and mereotopological assumptions about regions.
+
+The physical case is therefore the heaviest case, not because the criterion
+changes, but because the observation boundary is richer. Spatial connection,
+proper containment, inter-sample behaviour, and robust margins must be stated
+before the factorisation question is even well posed. This is why the physical
+case has explicit RCC-style assumptions and application-level coherence
+constraints. The discrete cases need less geometric structure: they are simpler tests
+of the same criterion.
+
+The case studies exercise both repair forms in all three domains. This
+symmetry is a mechanisation fact, not an engineering equivalence. In consensus,
+restriction becomes a local-quorum-belief predicate. In GPU-style memory,
+restriction becomes a data-race-free execution subdomain. In the physical case,
+restriction becomes a robust observational margin. The formal pattern is common.
+The cost of the repair is domain-specific.
+
+This also explains the different burden of the restriction proofs. In the
+consensus case, restriction changes the claim from global quorum safety to local
+quorum belief. In the GPU case, restriction changes the domain from arbitrary
+executions to data-race-free executions, with the DRF-SC bridge stated as a
+proof obligation for the toy model. In the physical case, restriction is
+naturally expressed by margins and boundary conditions. The same repair form is
+present in all three cases. It is not the same engineering act in all three
+cases.
+
+The non-degenerate-threshold parameterisation clarifies this asymmetry.  The
+physical case does not require special pleading.  It requires explicit
+parameterisation of the arithmetic and boundary conditions that make its
+observation space meaningful.  The GPU case carries an analogous burden
+through the DRF-SC bridge.  The consensus case carries it through the
+relation between local belief and global quorum structure.  The common
+criterion is unchanged.  What changes is the cost of making each observation
+boundary precise.
+
+\subsection{Structure of the observation-induced equivalences}
+\label{subsec:equivalence-structure}
+
+The three case studies induce observation-equivalences with different
+mathematical structures, despite sharing the same logical form
+\(x \sim_M y \;\Leftrightarrow\; M(x)=M(y)\). Making this contrast explicit
+clarifies why the physical case requires heavier axiomatisation and why
+restriction is more natural there.
+
+\medskip\noindent
+\textbf{Consensus.} The equivalence \(ns_1 \sim_{M_n} ns_2\), where
+\(M_n = \texttt{local\_node\_obs}\;n\), holds when both network states produce
+the same \texttt{LocalView} record for node~\(n\). That record contains only a
+message list filtered by the partition relation and a local quorum boolean. Two
+states fall in the same fibre when node~\(n\) cannot observe the global
+reachability information that separates them. The equivalence is combinatorial:
+it depends entirely on which messages survive a single Boolean filter.
+
+\medskip\noindent
+\textbf{GPU memory.} The equivalence \(e_1 \sim_{T_t} e_2\), where
+\(T_t = \texttt{thread\_local\_obs}\;t\), holds when both executions produce
+the same sequence of memory events for thread~\(t\). The equivalence is
+sequential: it collapses all inter-thread ordering, buffering, and
+synchronisation metadata. Two executions fall in the same fibre when the
+thread-local value trace is identical but the global consistency status differs.
+No axioms beyond those for list equality are required to state this equivalence.
+
+\medskip\noindent
+\textbf{Physical sensing.} The equivalence \(s_1 \sim_{\sigma} s_2\), where
+\(\sigma = \texttt{sensor\_obs}\), holds when both physical states share the
+same boundary pressure and flux readings, regardless of temperature. This is
+the simplest fibre condition to write down, but it is not the cheapest to reason
+about. Constructing the inadmissibility witness requires that
+\(\texttt{max\_temp} - 1 < \texttt{max\_temp}\), which is only valid under the
+positivity axiom. Stating what a safe region \emph{is}, before asking whether
+it is observable, requires the boundary and containment structure provided by
+the RCC-style parameters and axioms. The equivalence is geometrically
+grounded in a way the discrete equivalences are not.
+
+\medskip
+The contrast is this. In the discrete cases the observation-induced equivalence
+is structurally transparent: list filtering and record projection. In the
+physical case the equivalence requires background geometric conditions to be
+non-degenerate. This is not a weakness of the physical model. It reflects the
+genuine cost of stating a spatial safety predicate precisely enough to ask the
+factorisation question at all.
+
+% -----------------------------------------------------------------------
+\section{Related Work}
+\label{sec:related}
+% -----------------------------------------------------------------------
+
+\subsection{Abstraction and abstract interpretation}
+
+The nearest technical setting is abstract interpretation. Cousot and Cousot
+define program analysis by interpreting concrete computations in an abstract
+domain, with soundness controlled by the relation between concrete and abstract
+semantics~\cite{cousot1977abstract}. The present paper uses only the following
+fragment of that setting: a predicate must be constant on the observational
+fibres if it is to be asserted through the observation.
+
+Counterexample-guided abstraction refinement gives a standard method for
+repairing abstractions that admit spurious counterexamples~\cite{clarke2000cegar,clarke2003cegar}.
+The criterion here is prior to refinement search: before asking how to refine,
+one asks whether the asserted predicate is even invariant on the current
+observational fibres. CEGAR asks how to refine after an abstract counterexample.
+Structural admissibility asks whether the predicate was observable through the
+interface in the first place.
+
+\subsection{Runtime verification and monitorability}
+
+Runtime verification studies what can be judged from finite or partial runtime
+observations. Bauer, Leucker, and Schallhart give a three-valued account for LTL
+and TLTL monitoring, including inconclusive outcomes over partial
+traces~\cite{bauer2011runtime}. This paper does not replace monitorability theory.
+It states a basic obstruction that any such theory must respect: a monitor cannot
+distinguish states that its observation interface identifies.
+
+Functional safety and risk-management practice already distinguish between
+changing the operating claim and changing the instrumentation. Standards such
+as ISO~31000 and IEC~61508 are not factorisation theories, but they make clear
+that risk treatment, safety functions, monitoring, and operating conditions must
+be stated together~\cite{iso31000,iec61508}. This paper supplies a small formal
+criterion for one version of that practical discipline.
+
+\subsection{Consensus and weak memory}
+
+The consensus case study is intentionally small. It should be read against the
+larger literature on distributed agreement, including Lamport's presentation of
+Paxos~\cite{lamport2001paxos}. The point is not to mechanise Paxos. The point is
+to show how a local observation can collapse states that differ with respect to
+a global safety predicate.
+
+The GPU-style case is similarly modest. It is motivated by the general problem
+that weak-memory behaviours depend on global consistency constraints not
+visible in a local thread trace. Work on x86-TSO and weak memory models gives
+the broader context for this issue~\cite{owens2009x86tso,alglave2014herding}.
+Here again, the paper does not claim to mechanise a production memory model. It
+uses the setting to expose factorisation failure.
+
+\subsection{Type-theoretic and constructive verification}
+
+The mechanisation is carried out in Rocq, formerly Coq. Proof assistants make
+assumptions, definitions, and proof obligations explicit. That explicitness is
+part of the paper's method. A hidden observational assumption is not harmless
+because it permits a theorem to compile. It changes the observation through
+which the theorem is being claimed~\cite{coq2024}.
+
+\subsection{Mereotopology and region-based spatial reasoning}
+
+The physical-systems case uses region-based reasoning in the spirit of the
+Region Connection Calculus. Randell, Cui, and Cohn's RCC framework treats
+spatial reasoning in terms of regions and connection rather than point-set
+coordinates~\cite{randell1992rcc}. The present paper uses only a small part of
+this tradition. Its role is to make boundary-sensitive observation explicit.
+
+% -----------------------------------------------------------------------
+\section{Limitations}
+\label{sec:limitations}
+% -----------------------------------------------------------------------
+
+The case studies are small by design. Their role is separation, not coverage:
+each isolates a concrete observation map, a predicate, a collapse witness, and
+a repair. No result depends on treating these models as complete industrial
+specifications.
+
+Both repair forms are mechanised in all three domains. This is a coverage
+claim about the case studies, not a claim that the repairs have equal strength,
+equal cost, or equal naturalness in each domain. Consensus formalises
+restriction (\texttt{ConsensusRestriction.v}) and refinement
+(\texttt{ConsensusAdmissibility.v}). GPU memory formalises restriction
+(\texttt{GPURestriction.v}) and refinement (\texttt{GPUAdmissibility.v}).
+The physical-systems case formalises both robust restriction and refinement.
+
+The GPU restriction result should not be read as a full mechanisation of a
+production GPU memory model or as an independent proof of a DRF-SC theorem.
+It proves the admissibility repair obtained once the execution class is
+restricted to data-race-free executions and the DRF-SC bridge is supplied for
+the toy model. This is the intended level of the case study.
+
+The RCC axioms and application-level coherence constraints are explicit
+mathematical assumptions. They are not derived from a minimal connection theory.
+The paper gives a structural criterion, not an automated refinement algorithm
+and not a decision procedure for admissibility.
+
+Finally, warrant debt is not proposed as a quantitative risk metric here.
+The development gives warrant debt a qualitative profile: debt kind, repair pressure,
+and repair cost band.  This is enough to distinguish trace debt from boundary
+debt, or threshold debt from runtime debt.  It is not enough to compute
+expected harm, probability of failure, or economic cost.  Those quantitative
+questions remain future work.
+
+% -----------------------------------------------------------------------
+\section{Discussion}
+\label{sec:discussion}
+% -----------------------------------------------------------------------
+
+\subsection{Observation interfaces as verification boundaries}
+
+A safety property is a property of the relation between the system, the
+predicate, and the observation interface. If the observation cannot distinguish
+two states, no claim that separates those states is justified through that
+observation.
+
+\subsection{Refinement as factorisation repair}
+
+Refinement is often described as the removal of spurious behaviour from an
+abstraction. Here it repairs a failed factorisation: it changes the observation
+boundary so that a predicate invisible at the coarse interface becomes visible
+at the refined one.
+
+This way of speaking also clarifies why refinement is not always the right
+repair. Sometimes the better engineering decision is to restrict the claim.
+Operating envelopes, robust margins, lockout conditions, and restricted modes
+are not second-class repairs. They are ordinary safety devices. What matters is
+that the restricted claim actually factors through the observation being used.
+
+\subsection{Warrant debt}
+
+Warrant debt is the operational residue of claiming more than the observation
+can support.  The formal object is the collapse witness: same observation,
+different predicate value.  The term is useful only if it prevents
+equivocation.  If the missing distinction is irrelevant to the predicate,
+there is no debt.  If the predicate requires the missing distinction, then
+calling the discrepancy noise is unsafe.
+
+The development treats warrant debt as a qualitative classification,
+not merely as a name.  A debt profile records the kind of collapsed
+distinction, the repair pressure, and the expected repair cost band.  Quorum
+debt, trace debt, boundary debt, threshold debt, and runtime debt all
+instantiate the same factorisation failure, but they do not impose the same
+engineering burden.
+
+This classification also clarifies what it would mean to carry warrant debt.
+A project may decide that full observational refinement is too costly.  That
+does not discharge the debt.  It changes the safety case.  The stronger claim
+must be rejected or restricted, and the remaining debt must be recorded as a
+limitation of the supported claim.  In this sense, acceptable warrant debt is
+not hidden debt.  It is named, bounded, and attached to a weaker assertion.
+
+The proof obligation remains unchanged: show factorisation, restrict the
+claim, reject the claim, or refine the observation.
+
+\paragraph{Future work.}
+Future work has three natural directions. The first is quantitative: to refine
+the qualitative warrant-debt profile into a numerical account of severity, for
+example by metric distance, information-theoretic loss, or expected repair cost.
+The second is mechanistic: to replace the DRF-SC bridge in the GPU case with a
+fuller proof inside a richer memory model. The third is scaling: to move from
+deliberately small case studies to larger assurance models without changing the
+factorisation criterion.
+
+% -----------------------------------------------------------------------
+\section{Conclusion}
+\label{sec:conclusion}
+% -----------------------------------------------------------------------
+
+The paper proves a limited claim. Its consequence is not optional. A safety
+predicate can be asserted through an observation only if it factors through
+that observation. If two concrete states have the same observation but different
+predicate values, the observation does not support the claim. Post-processing
+cannot repair that loss.
+
+This situation occurs in ordinary safety work. Engineers restrict operating
+envelopes. They add sensors. They change thresholds. They refine logs. They
+reject claims that the evidence cannot support. The paper does not replace
+those practices. It gives one formal reason why they matter.
+
+The implemented lesson is therefore small but strict.  A failed
+factorisation is not an invitation to tune a post-processor.  It is a repair
+obligation.  The obligation may be discharged by restriction, rejection, or
+refinement.  If it is not discharged, it must be carried explicitly as profiled
+warrant debt.
+
+The warning is simple. An admissibility failure may look like noise. It may look
+like harmless underspecification. It may look like a modelling convention. But
+if the safety predicate depends on a distinction the observation has collapsed,
+the problem is structural. The response is not a stronger post-processor. It
+is restriction, rejection, or refinement.
+
+% -----------------------------------------------------------------------
+\appendix
+
+\section{Assumptions}
+\label{app:assumptions}
+% -----------------------------------------------------------------------
+
+The development contains no admitted lemmas, 41 compiled Rocq source files, and
+eight named axioms. Every axiom is documented in \texttt{ASSUMPTIONS.md} in the
+accompanying repository. The audit commands that verify this status are:
+
+\begin{verbatim}
+find . -name '*.v'  | wc -l   # 41
+find . -name '*.vo' | wc -l   # 41
+grep -RniE '\bAdmitted\b' . --include='*.v'   # no output
+grep -RnE  '\bAxiom\b'    . --include='*.v'   # 8 matches
+\end{verbatim}
+
+\noindent Both grep commands above also return no output when run against
+\texttt{GPURestriction.v} directly, confirming that the restriction repair
+introduces neither \texttt{Axiom} declarations nor \texttt{Admitted} proofs.
+
+% -----------------------------------------------------------------------
+\section{Rocq File Map}
+\label{app:filemap}
+% -----------------------------------------------------------------------
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{p{2.1cm}p{4.0cm}p{4.5cm}}
+\toprule
+Component & Files & Role \\
+\midrule
+Foundation & \texttt{Foundation/*.v} & Observation, factorisation, mereotopology \\
+Admissibility & \texttt{Admissibility/*.v} & Core admissibility theory \\
+Runtime & \texttt{Runtime/*.v} & Monitor states, fatigue, certificates \\
+Automation & \texttt{Automation/*.v} & Custom proof tactics \\
+Consensus & \texttt{CaseStudies/\allowbreak{}Consensus/*.v} & Quorum-safety admissibility, local-quorum restriction \\
+GPU & \texttt{CaseStudies/GPU/*.v} & Thread-local inadmissibility, global refinement, DRF restriction \\
+Physical & \texttt{CaseStudies/\allowbreak{}PhysicalSystems/*.v} & Sensor inadmissibility, restriction, refinement \\
+Extraction & \texttt{Extraction/*.v} & Verified OCaml extraction bridge \\
+\bottomrule
+\end{tabular}
+\caption{Rocq source file map.}
+\label{tab:filemap}
+\end{table}
+
+\FloatBarrier
+
+% -----------------------------------------------------------------------
+% Bibliography
+% -----------------------------------------------------------------------
+\begin{thebibliography}{99}
+
+\bibitem{alglave2014herding}
+Jade Alglave, Luc Maranget, and Michael Tautschnig.
+\newblock Herding cats: modelling, simulation, testing, and data mining for weak memory.
+\newblock \emph{ACM Transactions on Programming Languages and Systems}, 36(2), 2014.
+
+\bibitem{bauer2011runtime}
+Andreas Bauer, Martin Leucker, and Christian Schallhart.
+\newblock Runtime verification for LTL and TLTL.
+\newblock \emph{ACM Transactions on Software Engineering and Methodology}, 20(4):14:1--14:64, 2011.
+
+\bibitem{clarke2000cegar}
+Edmund M. Clarke, Orna Grumberg, Somesh Jha, Yuan Lu, and Helmut Veith.
+\newblock Counterexample-guided abstraction refinement.
+\newblock In \emph{Computer Aided Verification}, LNCS 1855, pages 154--169. Springer, 2000.
+
+\bibitem{clarke2003cegar}
+Edmund M. Clarke, Orna Grumberg, Somesh Jha, Yuan Lu, and Helmut Veith.
+\newblock Counterexample-guided abstraction refinement for symbolic model checking.
+\newblock \emph{Journal of the ACM}, 50(5):752--794, 2003.
+
+\bibitem{cousot1977abstract}
+Patrick Cousot and Radhia Cousot.
+\newblock Abstract interpretation: a unified lattice model for static analysis of programs by construction or approximation of fixpoints.
+\newblock In \emph{Proceedings of the 4th ACM Symposium on Principles of Programming Languages}, pages 238--252, 1977.
+
+\bibitem{iec61508}
+International Electrotechnical Commission.
+\newblock \emph{IEC 61508: Functional safety of electrical/electronic/programmable electronic safety-related systems}.
+\newblock IEC, current multi-part standard.
+
+\bibitem{iso31000}
+International Organization for Standardization.
+\newblock \emph{ISO 31000:2018 Risk management, Guidelines}.
+\newblock ISO, 2018.
+
+\bibitem{lamport2001paxos}
+Leslie Lamport.
+\newblock Paxos made simple.
+\newblock \emph{ACM SIGACT News}, 32(4):51--58, 2001.
+
+\bibitem{owens2009x86tso}
+Scott Owens, Susmit Sarkar, and Peter Sewell.
+\newblock A better x86 memory model: x86-TSO.
+\newblock In \emph{Theorem Proving in Higher Order Logics}, LNCS 5674, pages 391--407. Springer, 2009.
+
+\bibitem{randell1992rcc}
+David A. Randell, Zhan Cui, and Anthony G. Cohn.
+\newblock A spatial logic based on regions and connection.
+\newblock In \emph{Proceedings of the 3rd International Conference on Principles of Knowledge Representation and Reasoning}, pages 165--176, 1992.
+
+\bibitem{coq2024}
+The Coq Development Team.
+\newblock \emph{The Coq Proof Assistant}.
+\newblock Zenodo, 2024.
+
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,8 @@
+(library
+ (name structural_admissibility)
+ (modules
+   monitor_kernel
+   rupture_cert
+   cert_parser
+   sensor_adapter
+   fatigue_trace))

@@ -1,0 +1,14 @@
+(test
+ (name test_monitor_kernel)
+ (modules test_monitor_kernel)
+ (libraries structural_admissibility))
+
+(test
+ (name test_cert_parser)
+ (modules test_cert_parser)
+ (libraries structural_admissibility))
+
+(test
+ (name test_extracted_equivalence)
+ (modules test_extracted_equivalence)
+ (libraries structural_admissibility))

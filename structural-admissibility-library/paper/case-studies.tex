@@ -1,0 +1,169 @@
+% case-studies.tex
+% Integrated case-study section for the structural admissibility paper.
+% Insert into the main file with:
+%   \input{paper/case-studies}
+% at the point where the case-study section begins.
+
+\section{Case Studies: Refine or Reject}
+
+The development contains three case-study families: consensus under network
+partition, GPU-style relaxed memory, and cyber-physical sensor models. These
+examples are deliberately drawn from different engineering domains. Their common
+structure is the point. In each case, a safety predicate is naturally formulated
+over a concrete state space~\(X\), while the available observation map
+\(M : X \to O\) exposes only a coarser interface. The case study then asks
+whether the predicate factors through that observation.
+
+The answer is negative for the initial coarse observation in each family. The
+coarse observation identifies concrete states that disagree on the relevant
+safety predicate. The admissibility failure is therefore structural rather than
+accidental. Recovery takes one of two forms: replace the predicate by one that
+is meaningful at the observational grain, or refine the observation so that the
+safety-relevant distinction is no longer collapsed.
+
+\begin{table}[t]
+\centering
+\caption{Case-study structure: factorisation failure and admissibility recovery.}
+\label{tab:case-study-factorisation}
+\small
+\begin{tabular}{p{1.8cm}p{2.8cm}p{3.5cm}p{2.9cm}}
+\hline
+Case study & Hidden distinction & Coarse failure & Recovery \\
+\hline
+Consensus
+  & Partition and quorum structure
+  & Local observations do not determine global quorum safety
+  & Restrict to local quorum belief; or enrich with quorum-safety data \\[4pt]
+GPU memory
+  & Buffer, cache, and ordering structure
+  & Value traces do not determine consistency behaviour
+  & Restrict to DRF executions; or enrich with global ordering metadata \\[4pt]
+Physical systems
+  & Inter-sample and boundary behaviour
+  & Sampled values do not determine continuous safety
+  & Use robust observational margins; or enrich sensing and boundary data \\
+\hline
+\end{tabular}
+\end{table}
+
+\paragraph{Mechanisation status.}
+The three case-study families instantiate the same factorisation pattern.
+The consensus case study mechanises both repair paths: the refinement
+path restores admissibility for \(\texttt{quorum\_safe}\) by enriching
+the observation (\texttt{ConsensusAdmissibility.v}), and the restriction
+path yields an admissible local-quorum-belief predicate at the coarse
+observational grain (\texttt{ConsensusRestriction.v}). The GPU case study
+mechanises both repair paths: refinement by enriched global execution
+observation (\texttt{GPUAdmissibility.v}), and restriction to the subtype
+of data-race-free executions (\texttt{GPURestriction.v}). The
+physical-systems case study mechanises both paths: a restricted predicate
+is admissible at the coarse sensor grain, and an enriched sensor observation
+restores admissibility for the stronger predicate. The development
+mechanises predicate restriction in all three domains and observational
+refinement in all three.
+
+% -----------------------------------------------------------------------
+\subsection{Consensus Under Partition}
+
+The consensus case study concerns quorum safety under network partition. The
+concrete state records enough information to determine whether the relevant
+quorum-safety predicate holds. A coarse observation, however, may expose only
+local status information. Such an observation does not determine global quorum
+safety. Two concrete states may agree on the local observation while disagreeing
+on whether a quorum is safely established.
+
+This failure is not a defect in the proof script. It is the phenomenon the
+framework is intended to detect. A uniformity principle for reachable alive
+nodes fails in the partition model: different nodes may have different
+reachable alive counts. The admissibility proof cannot be closed by that
+route.
+
+The mechanised consensus case study proves both repair paths.
+
+\textit{Refinement.} The observation record \texttt{ConsensusObs} contains the
+field \texttt{co\_quorum\_safe}, computed by \texttt{consensus\_obs} from the
+underlying consensus state. The proof of admissibility is then immediate:
+equality of observations entails equality of the quorum-safety component by
+projection. The safety predicate becomes admissible because the observation
+carries the safety-relevant distinction directly.
+
+\textit{Restriction.} Rather than asserting global quorum safety, one can
+instead assert only what the local observation supports: the node's own quorum
+belief, \texttt{local\_quorum\_belief~n}, a projection of \texttt{lv\_quorum}
+from the local view record. This predicate is admissible relative to
+\texttt{local\_node\_obs~n} because it is a projection of the observation.
+The proof requires no axiom. The theorem \texttt{restriction\_is\_genuinely\_weaker}
+confirms that local belief and global quorum safety can disagree, so this is a
+genuine weakening and not a reformulation.
+
+The theorem \texttt{both\_repairs\_are\_available} states the formal duality
+in a single proposition: both \texttt{local\_quorum\_belief~n} and
+\texttt{quorum\_safe} are admissible, the former relative to the coarse local
+observation, the latter relative to the enriched consensus observation.
+
+% -----------------------------------------------------------------------
+\subsection{GPU-Style Memory Observations}
+
+The GPU-style case study concerns the gap between value observations and memory
+consistency. A coarse observation may record only the values read and written by
+threads. The concrete execution state, however, contains additional ordering and
+visibility structure: buffering, cache state, scope, and synchronisation
+metadata. A predicate such as sequential consistency of the concurrent execution
+is not, in general, determined by the value trace alone.
+
+The admissibility failure has the same form as in the consensus case. Two
+executions may have the same observed value trace for a given thread while
+disagreeing on whether the execution is sequentially consistent. The observation
+map has collapsed a distinction on which the safety predicate depends. The
+predicate therefore fails to factor through the thread-local observation.
+
+The GPU case study mechanises both repair paths. Refinement restores
+admissibility by enriching the observation with global execution structure.
+Restriction keeps the thread-local observation fixed but restricts the domain
+to data-race-free executions. On that restricted domain, the
+sequential-consistency predicate is stable across observation fibres,
+conditional on the DRF-SC bridge stated in \texttt{GPURestriction.v}.
+
+% -----------------------------------------------------------------------
+\subsection{Physical Sensing and Boundary Conditions}
+
+The physical-systems case study concerns safety predicates over continuous or
+boundary-sensitive states. A controller or monitor rarely observes the full
+physical trajectory. It receives sampled, discretised, or otherwise compressed
+sensor data. A predicate may require that a variable remain within a safe region
+throughout an interval, while the observation records only values at selected
+sampling points or coarse boundary summaries.
+
+The resulting admissibility failure is again a failure of factorisation. Two
+physical trajectories may induce the same sampled observation while disagreeing
+on the safety predicate. One trajectory may remain inside the safe envelope,
+while another may violate the envelope between samples or across an unresolved
+boundary. The sampled observation is therefore insufficient to determine the
+predicate.
+
+This case study mechanises both recovery paths. The coarse sensor observation is
+proved inadmissible for the original safety predicate. A restricted predicate
+meaningful at the coarse observational grain is then shown to be admissible
+relative to that observation. Finally, an enriched sensor observation that adds
+the missing physical data restores admissibility for the stronger predicate. The
+physical-systems case study therefore demonstrates the full design choice: one
+may weaken the guarantee to match the observation, or strengthen the observation
+to match the guarantee.
+
+% -----------------------------------------------------------------------
+\subsection{Common Structure}
+
+The three case-study families differ in engineering content but not in logical
+shape. Consensus hides partition and quorum structure. GPU-style memory hides
+ordering and visibility structure. Physical sensing hides inter-sample or
+boundary behaviour. In each case, the initial observation map is too coarse for
+the safety predicate. The predicate fails to factor because the observation
+identifies concrete states that the predicate separates.
+
+This is the common admissibility defect. It is independent of whether the hidden
+structure is distributed, concurrent, or physical. The repair is also common:
+either choose a predicate that is meaningful at the given observational grain, or
+refine the observation until the predicate becomes invariant on observation
+fibres. The case studies therefore support the main methodological claim of the
+paper. Admissibility is not merely a property of a predicate or a system. It is a
+property of the relation between a predicate and an observation interface.
