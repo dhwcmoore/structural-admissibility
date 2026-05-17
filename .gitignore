@@ -33,3 +33,15 @@ _build/
 # OS
 .DS_Store
 Thumbs.db
+.~lock.*
+
+# Working files — keep local, not on GitHub
+*.odt
+*.m4a
+*.zip
+*.diff
+*.patch
+line_by_line_review.md
+main_dijkstra_revised.tex
+refs_structural_admissibility.bib
+Structural Admissibility.md
