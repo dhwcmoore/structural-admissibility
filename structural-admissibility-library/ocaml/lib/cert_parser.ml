@@ -128,7 +128,7 @@ let of_json (json : string) : (rupture_certificate, string) result =
       cert_pred_right = pr;
       cert_fatigue    = fat;
     } in
-    (** Step 2: semantic validation via the extracted verifier *)
+    (* Step 2: semantic validation via the extracted verifier *)
     if cert_valid cert then Ok cert
     else Error "certificate fails semantic validation"
   | _ ->
@@ -153,7 +153,7 @@ let snapshot_of_json (json : string) : (snapshot, string) result =
     | _ -> None
   in
   match get "fatigue", get "tension", get "horizon", get "lag",
-        (List.assoc_opt "status" kvs |> Option.bind (fun v -> status_of_str v)) with
+        (List.assoc_opt "status" kvs |> Option.map status_of_str |> Option.join) with
   | Some f, Some t, Some h, Some l, Some st ->
     Ok { fatigue = f; tension = t; horizon = h; lag = l; status = st }
   | _ ->

@@ -1,5 +1,6 @@
 (library
  (name structural_admissibility)
+ (wrapped false)
  (modules
    monitor_kernel
    rupture_cert
